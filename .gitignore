@@ -1,0 +1,21 @@
+# Virtual Environments
+gym_env/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ML Models
+*.pt
+*.pth
+*.h5
+*.onnx
+*.pkl
+
+# Datasets
+*.csv
+*.zip
+
+# Mac
+.DS_Store
