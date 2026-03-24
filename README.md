@@ -60,3 +60,27 @@ python main.py
 2. Press `P` for push-ups or `S` for squats.
 3. Follow the on-screen guidance and voice feedback.
 4. Press `Q` to exit.
+
+## Packaging With PyInstaller
+
+This project includes a ready-to-use PyInstaller setup for local desktop deployment on macOS.
+
+1. Use the project virtual environment or your preferred Python environment.
+2. Run the build script:
+
+```bash
+chmod +x scripts/build_app.sh
+./scripts/build_app.sh
+```
+
+This will:
+
+- install runtime and build dependencies
+- package the app with the committed `fitness_coach.spec`
+- generate a desktop bundle in `dist/FitnessCoach.app`
+
+If you want to use a different Python interpreter, pass it like this:
+
+```bash
+PYTHON_BIN=/path/to/python ./scripts/build_app.sh
+```

@@ -13,6 +13,20 @@ from exercises.pushup import PushUp
 from exercises.squat import Squat
 
 
+def activate_macos_app():
+    if platform.system() != "Darwin":
+        return
+
+    try:
+        from AppKit import NSApplication, NSApplicationActivationPolicyRegular
+
+        app = NSApplication.sharedApplication()
+        app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+        app.activateIgnoringOtherApps_(True)
+    except Exception:
+        pass
+
+
 def draw_panel(image, top_left, bottom_right, color=(18, 18, 18), alpha=0.55):
     overlay = image.copy()
     cv2.rectangle(overlay, top_left, bottom_right, color, -1)
@@ -93,6 +107,10 @@ def main():
     exercise = PushUp()
     speaker = Speaker()
     last_feedback_voice = None
+    window_name = "Edge AI Gym"
+    window_initialized = False
+
+    activate_macos_app()
 
     # Use AVFoundation on macOS; let OpenCV choose the default backend elsewhere.
     if platform.system() == "Darwin":
@@ -105,6 +123,8 @@ def main():
         return
     else:
         print("✅ Camera opened successfully")
+
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     while True:
         ret, frame = cap.read()
@@ -209,7 +229,11 @@ def main():
             thickness=controls_thickness,
         )
 
-        cv2.imshow("Edge AI Gym", image)
+        cv2.imshow(window_name, image)
+
+        if not window_initialized:
+            activate_macos_app()
+            window_initialized = True
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord("p"):
