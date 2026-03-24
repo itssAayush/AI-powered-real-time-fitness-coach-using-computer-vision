@@ -17,7 +17,7 @@ class PushUp(BaseExercise):
         self.angle_history.append(angle)
 
         if len(self.angle_history) > 5:
-            self.angle_history.pop(0)
+            self.angle_history = self.angle_history[-5:]
 
         return np.mean(self.angle_history)
 
@@ -26,7 +26,7 @@ class PushUp(BaseExercise):
         hip_y = landmarks[23].y
 
         # If shoulder and hip are close vertically → body horizontal
-        return abs(shoulder_y - hip_y) < 0.1
+        return abs(shoulder_y - hip_y) < 0.2
 
     def update(self, landmarks):
 
@@ -40,27 +40,25 @@ class PushUp(BaseExercise):
         # Cooldown to avoid double count
         if self.cooldown > 0:
             self.cooldown -= 1
-            return self.counter, angle
+            return self.counter, angle, self.direction
 
         # Ignore if body not horizontal
         if not self.body_is_horizontal(landmarks):
-            return self.counter, angle
+            return self.counter, angle, self.direction
 
-        # Detect movement direction
-        if len(self.angle_history) >= 2:
-            if self.angle_history[-1] < self.angle_history[-2]:
-                self.direction = "down"
-            elif self.angle_history[-1] > self.angle_history[-2]:
-                self.direction = "up"
+        # At the top position, cue the user to go lower.
+        if angle > 160:
+            self.direction = "down"
 
-        # Bottom position detection
-        if angle < 70 and self.direction == "down":
+        # Near the bottom position, cue the user to push back up.
+        elif angle < 130:
+            self.direction = "up"
             self.bottom_reached = True
 
-        # Count rep when returning up after bottom
-        if angle > 170 and self.bottom_reached and self.direction == "up":
+        # Count a rep once the user returns to the top after reaching the bottom.
+        if angle > 160 and self.bottom_reached and self.direction == "down":
             self.counter += 1
             self.bottom_reached = False
-            self.cooldown = 15
+            self.cooldown = 8
 
-        return self.counter, angle
+        return self.counter, angle, self.direction

@@ -1,37 +1,232 @@
+import queue
+import threading
 import cv2
+import platform
+
+try:
+    import pyttsx3
+except ImportError:
+    pyttsx3 = None
+
 from pose_detector import PoseDetector
 from exercises.pushup import PushUp
+from exercises.squat import Squat
 
-# Initialize detector and exercise
-detector = PoseDetector()
-exercise = PushUp()
 
-cap = cv2.VideoCapture(0)
+def draw_panel(image, top_left, bottom_right, color=(18, 18, 18), alpha=0.55):
+    overlay = image.copy()
+    cv2.rectangle(overlay, top_left, bottom_right, color, -1)
+    cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
 
-    # Detect pose
-    image, results = detector.detect_pose(frame)
-    landmarks = detector.get_landmarks(results)
+def draw_text(image, text, position, scale=0.55, color=(245, 245, 245), thickness=1):
+    cv2.putText(
+        image,
+        text,
+        position,
+        cv2.FONT_HERSHEY_DUPLEX,
+        scale,
+        (0, 0, 0),
+        thickness + 2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        image,
+        text,
+        position,
+        cv2.FONT_HERSHEY_DUPLEX,
+        scale,
+        color,
+        thickness,
+        cv2.LINE_AA,
+    )
 
-    if landmarks:
-        count, angle = exercise.update(landmarks)
 
-        # Display rep count
-        cv2.putText(image, f'Reps: {count}', (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+class Speaker:
+    def __init__(self):
+        self.enabled = False
+        self.engine = None
+        self.messages = queue.Queue()
+        self.worker = None
 
-        # Display angle (for debugging)
-        cv2.putText(image, f'Angle: {int(angle)}', (10, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
+        if pyttsx3 is None:
+            return
 
-    cv2.imshow("Edge AI Gym", image)
+        try:
+            self.engine = pyttsx3.init()
+            self.engine.setProperty("rate", 175)
+            self.worker = threading.Thread(target=self._run, daemon=True)
+            self.worker.start()
+            self.enabled = True
+        except Exception:
+            self.engine = None
+            self.worker = None
 
-    if cv2.waitKey(10) & 0xFF == ord('q'):
-        break
+    def _run(self):
+        while True:
+            message = self.messages.get()
+            if message is None:
+                break
 
-cap.release()
-cv2.destroyAllWindows()
+            try:
+                self.engine.say(message)
+                self.engine.runAndWait()
+            except Exception:
+                continue
+
+    def say(self, message):
+        if self.enabled and message and self.messages.empty():
+            self.messages.put(message)
+
+    def stop(self):
+        if self.enabled:
+            self.messages.put(None)
+            if self.worker is not None:
+                self.worker.join(timeout=1)
+
+
+def main():
+
+    # Initialize detector and exercise
+    detector = PoseDetector()
+    exercise_type = "pushup"
+    exercise = PushUp()
+    speaker = Speaker()
+    last_feedback_voice = None
+
+    # Use AVFoundation on macOS; let OpenCV choose the default backend elsewhere.
+    if platform.system() == "Darwin":
+        cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+    else:
+        cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        print("❌ Camera failed to open")
+        return
+    else:
+        print("✅ Camera opened successfully")
+
+    while True:
+        ret, frame = cap.read()
+
+        if not ret:
+            print("❌ Failed to grab frame")
+            break
+
+        frame = cv2.resize(frame, (640, 480))
+
+        # Detect pose
+        image, results = detector.detect_pose(frame)
+        landmarks = detector.get_landmarks(results)
+        count = exercise.counter
+        angle = None
+        direction = None
+        feedback = "Find your pose"
+        feedback_voice = None
+
+        if landmarks is not None:
+            count, angle, direction = exercise.update(landmarks)
+
+            if exercise_type == "pushup":
+                if angle > 160:
+                    feedback = "Go Lower"
+                    feedback_voice = "Go lower"
+                elif angle < 130:
+                    feedback = "Push Up"
+                    feedback_voice = "Push up"
+                else:
+                    feedback = "Good Form"
+            elif exercise_type == "squat":
+                if angle > 155:
+                    feedback = "Go Lower"
+                    feedback_voice = "Go lower"
+                elif angle < 95:
+                    feedback = "Stand Up"
+                    feedback_voice = "Stand up"
+                else:
+                    feedback = "Good Form"
+
+        if feedback_voice and feedback_voice != last_feedback_voice:
+            speaker.say(feedback_voice)
+        last_feedback_voice = feedback_voice
+
+        hud_left = 14
+        hud_top = 14
+        hud_width = 220
+        hud_height = 150
+        draw_panel(image, (hud_left, hud_top), (hud_left + hud_width, hud_top + hud_height))
+
+        draw_text(image, f"Reps: {count}", (26, 42), scale=0.7, color=(255, 255, 255), thickness=1)
+        draw_text(
+            image,
+            f"Angle: {int(angle) if angle is not None else '---'}",
+            (26, 72),
+            scale=0.5,
+            color=(220, 220, 220),
+            thickness=1,
+        )
+        draw_text(
+            image,
+            f"Direction: {direction if direction else '---'}",
+            (26, 100),
+            scale=0.5,
+            color=(220, 220, 220),
+            thickness=1,
+        )
+        draw_text(
+            image,
+            f"Exercise: {exercise_type.title()}",
+            (26, 128),
+            scale=0.5,
+            color=(220, 220, 220),
+            thickness=1,
+        )
+        draw_text(image, feedback, (26, 156), scale=0.58, color=(120, 230, 255), thickness=1)
+
+        controls_text = "P: Pushup  S: Squat  Q: Quit"
+        controls_scale = 0.42
+        controls_thickness = 1
+        (controls_width, controls_height), controls_baseline = cv2.getTextSize(
+            controls_text,
+            cv2.FONT_HERSHEY_DUPLEX,
+            controls_scale,
+            controls_thickness,
+        )
+        controls_x = image.shape[1] - controls_width - 24
+        controls_y = 28
+        draw_panel(
+            image,
+            (controls_x - 10, controls_y - controls_height - 8),
+            (controls_x + controls_width + 10, controls_y + controls_baseline + 8),
+            alpha=0.5,
+        )
+        draw_text(
+            image,
+            controls_text,
+            (controls_x, controls_y),
+            scale=controls_scale,
+            color=(240, 240, 240),
+            thickness=controls_thickness,
+        )
+
+        cv2.imshow("Edge AI Gym", image)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("p"):
+            exercise = PushUp()
+            exercise_type = "pushup"
+            last_feedback_voice = None
+        elif key == ord("s"):
+            exercise = Squat()
+            exercise_type = "squat"
+            last_feedback_voice = None
+        elif key == ord("q"):
+            break
+
+    cap.release()
+    speaker.stop()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
