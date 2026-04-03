@@ -1,16 +1,24 @@
 import queue
+import sys
 import threading
 import cv2
 import platform
+from pathlib import Path
 
 try:
     import pyttsx3
 except ImportError:
     pyttsx3 = None
 
-from pose_detector import PoseDetector
-from exercises.pushup import PushUp
-from exercises.squat import Squat
+_ROOT = Path(__file__).resolve().parent
+_BACKEND = _ROOT / "backend"
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from ai_engine.pose_detector import PoseDetector
+from ai_engine.exercises.pushup import PushUp
+from ai_engine.exercises.squat import Squat
+from ai_engine.form_scoring import compute_form_score
 
 
 def activate_macos_app():
@@ -136,31 +144,36 @@ def main():
         frame = cv2.resize(frame, (640, 480))
 
         # Detect pose
-        image, results = detector.detect_pose(frame)
+        image, results = detector.detect_pose(frame, draw_landmarks=True)
         landmarks = detector.get_landmarks(results)
         count = exercise.counter
         angle = None
         direction = None
+        form_pct = None
         feedback = "Find your pose"
         feedback_voice = None
 
         if landmarks is not None:
-            count, angle, direction = exercise.update(landmarks)
+            count, angle, direction, rep_done = exercise.update(landmarks)
+            if angle is not None:
+                form_pct = compute_form_score(exercise_type, landmarks, float(angle))
+            if rep_done:
+                speaker.say("Nice rep")
 
             if exercise_type == "pushup":
-                if angle > 160:
+                if angle > 158:
                     feedback = "Go Lower"
                     feedback_voice = "Go lower"
-                elif angle < 130:
+                elif angle < 132:
                     feedback = "Push Up"
                     feedback_voice = "Push up"
                 else:
                     feedback = "Good Form"
             elif exercise_type == "squat":
-                if angle > 155:
+                if angle > 152:
                     feedback = "Go Lower"
                     feedback_voice = "Go lower"
-                elif angle < 95:
+                elif angle < 98:
                     feedback = "Stand Up"
                     feedback_voice = "Stand up"
                 else:
@@ -173,7 +186,7 @@ def main():
         hud_left = 14
         hud_top = 14
         hud_width = 220
-        hud_height = 150
+        hud_height = 210
         draw_panel(image, (hud_left, hud_top), (hud_left + hud_width, hud_top + hud_height))
 
         draw_text(image, f"Reps: {count}", (26, 42), scale=0.7, color=(255, 255, 255), thickness=1)
@@ -201,7 +214,15 @@ def main():
             color=(220, 220, 220),
             thickness=1,
         )
-        draw_text(image, feedback, (26, 156), scale=0.58, color=(120, 230, 255), thickness=1)
+        draw_text(
+            image,
+            f"Form: {int(form_pct)}%" if form_pct is not None else "Form: ---",
+            (26, 154),
+            scale=0.5,
+            color=(180, 255, 200),
+            thickness=1,
+        )
+        draw_text(image, feedback, (26, 180), scale=0.55, color=(120, 230, 255), thickness=1)
 
         controls_text = "P: Pushup  S: Squat  Q: Quit"
         controls_scale = 0.42
